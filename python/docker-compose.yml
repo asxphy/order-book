@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   kafka:
     image: bitnami/kafka:3.7.0
@@ -16,35 +18,44 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
     volumes:
       - kafka-data:/bitnami/kafka
+    healthcheck:  # ✅ wait until Kafka is actually ready
+      test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
   kafka-init:
     image: bitnami/kafka:3.7.0
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy   # ✅ only run once Kafka is healthy
     entrypoint: ["/bin/sh", "-c"]
     command: >
       "
       echo 'Waiting for Kafka to be ready...' &&
-      sleep 5 &&
-      docker exec -it kafka kafka-topics.sh --create --topic orders.in --partitions 12 --replication-factor 1 --bootstrap-server kafka:9092 &&
-      docker exec -it kafka kafka-topics.sh --create --topic events.out --partitions 12 --replication-factor 1 --bootstrap-server kafka:9092 &&
+      kafka-topics.sh --create --if-not-exists --topic orders.in --partitions 12 --replication-factor 1 --bootstrap-server kafka:9092 &&
+      kafka-topics.sh --create --if-not-exists --topic events.out --partitions 12 --replication-factor 1 --bootstrap-server kafka:9092 &&
       echo 'Topics created successfully!'
       "
 
   engine:
     build: ./
     depends_on:
-      - kafka
+      kafka-init:
+        condition: service_completed_successfully  # ✅ wait until topics are created
     environment:
       - KAFKA_BOOTSTRAP=kafka:9092
       - ENGINE_GROUP=matching-engine
       - ORDERS_IN=orders.in
       - EVENTS_OUT=events.out
     deploy:
-      replicas: 1   # scale this up; Kafka will assign more partitions
+      replicas: 1   # scale up later if needed
 
   producer:
     image: python:3.12-slim-trixie
-    depends_on: [kafka]
+    depends_on:
+      engine:
+        condition: service_started   # ✅ run after engine starts
     working_dir: /app
     volumes:
       - ./producer:/app

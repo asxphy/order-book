@@ -17,7 +17,7 @@ _dedup = defaultdict(lambda:deque(maxlen=100000))
 
 def get_engine(symbol):
     me = _engines.get(symbol)
-    if me in None:
+    if me is None:
         me = MatchingEngine()
         me.start()
         _engines[symbol] = me 
@@ -145,7 +145,6 @@ def run():
             
             cmd = json.loads(msg.value())
             handle_command(producer,cmd)
-
             consumer.commit(msg,asynchronous=False)
             producer.poll(0)
 
